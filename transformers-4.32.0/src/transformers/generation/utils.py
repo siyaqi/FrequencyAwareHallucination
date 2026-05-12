@@ -3246,7 +3246,7 @@ class GenerationMixin:
             chunks_scores=chunks_scores,
             chunks_input_ids=chunks_input_ids,
             tokenizer=tokenizer,
-            output_file=f"/scratch/users/k23075042/others_github/Lookback-Lens/candidates_xsum_temp2.json"
+            output_file=f"outputs/candidates_xsum_temp2.json"
         )
         
         if return_dict_in_generate:

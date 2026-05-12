@@ -21,13 +21,15 @@ data_response_names = {
 }
 
 
-def load_ragtruth(file_path, debug=False, subsample=None):
+def load_ragtruth(file_path, debug=False, subsample=None, split=None):
     """Load RAGTruth dataset."""
     list_data_dict = []
     with open(file_path, 'r', encoding="utf-8") as f:
         data = []
         for line in f:
             data.append(json.loads(line))
+        if split is not None:
+            data = [d for d in data if split in d.get('split', '')]
         if debug:
             data = data[:10]
         if subsample is not None:
@@ -70,13 +72,13 @@ def high_low_pass_ifft_batch(signal: torch.Tensor, f_cutoff: float):
     fft_res = torch.fft.fft(signal, dim=-1)
     freqs = torch.fft.fftfreq(N).to(signal.device)
     
-    mask = torch.abs(freqs) >= (0.5 - f_cutoff)
+    mask = torch.abs(freqs) >= f_cutoff
     mask = mask.to(signal.device)
-    
+
     fft_high = fft_res * mask
     sig_high = torch.fft.ifft(fft_high, dim=-1)
-    
-    low_mask = torch.abs(freqs) <= f_cutoff
+
+    low_mask = torch.abs(freqs) < (0.5 - f_cutoff)
     fft_low = fft_res * low_mask
     sig_low = torch.fft.ifft(fft_low, dim=-1)
     
@@ -101,9 +103,11 @@ if __name__ == "__main__":
     parser.add_argument("--auth-token", type=str, default=None)
     parser.add_argument("--data-type", type=str, default=None)
     parser.add_argument("--max-memory", type=int, default=45)
-    parser.add_argument("--f_cutoff", type=float, default=0.4)
+    parser.add_argument("--f_cutoff", type=float, default=0.45)
     parser.add_argument("--start-sample-idx", type=int, default=None)
     parser.add_argument("--end-sample-idx", type=int, default=None)
+    parser.add_argument("--split", type=str, default=None,
+                        help="If set, only process entries whose 'split' field contains this substring (e.g. 'train' or 'test').")
     
     args = parser.parse_args()
     
@@ -129,7 +133,7 @@ if __name__ == "__main__":
     if not os.path.exists(fp):
         raise ValueError(f"Test file {fp} does not exist.")
 
-    list_data_dict = load_ragtruth(fp, debug=args.debug, subsample=args.subsample)
+    list_data_dict = load_ragtruth(fp, debug=args.debug, subsample=args.subsample, split=args.split)
     
     llm = LLM(
         args.model_name, args.device, args.num_gpus, 
@@ -179,20 +183,26 @@ if __name__ == "__main__":
         
         context_low_l2 = torch.zeros((num_layers, num_heads, new_token_length))
         new_tokens_low_l2 = torch.zeros((num_layers, num_heads, new_token_length))
+        context_high_l2 = torch.zeros((num_layers, num_heads, new_token_length))
+        new_tokens_high_l2 = torch.zeros((num_layers, num_heads, new_token_length))
 
         for i in range(len(attentions)):
             for l in range(num_layers):
                 attn_on_context = attentions[i][l][0, :, -1, :context_length]
                 attn_on_new_tokens = attentions[i][l][0, :, -1, context_length:]
-                
+
                 attn_on_context_high, attn_on_context_low = high_low_pass_ifft_batch(attn_on_context, f_cutoff)
                 attn_on_new_tokens_high, attn_on_new_tokens_low = high_low_pass_ifft_batch(attn_on_new_tokens, f_cutoff)
-                
+
                 attn_on_context_low_l2 = torch.norm(attn_on_context_low, dim=-1)
                 attn_on_new_tokens_low_l2 = torch.norm(attn_on_new_tokens_low, dim=-1)
+                attn_on_context_high_l2 = torch.norm(attn_on_context_high, dim=-1)
+                attn_on_new_tokens_high_l2 = torch.norm(attn_on_new_tokens_high, dim=-1)
 
                 context_low_l2[l, :, i] = attn_on_context_low_l2
                 new_tokens_low_l2[l, :, i] = attn_on_new_tokens_low_l2
+                context_high_l2[l, :, i] = attn_on_context_high_l2
+                new_tokens_high_l2[l, :, i] = attn_on_new_tokens_high_l2
 
         for stop_word in stop_word_list:
             length_to_remove = len(stop_word)
@@ -207,6 +217,8 @@ if __name__ == "__main__":
             'full_input_text': input_text,
             'context_low_l2': context_low_l2,
             'new_tokens_low_l2': new_tokens_low_l2,
+            'context_high_l2': context_high_l2,
+            'new_tokens_high_l2': new_tokens_high_l2,
         }
         to_save_list.append(to_save)
 
