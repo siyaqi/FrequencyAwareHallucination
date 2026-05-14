@@ -2,6 +2,13 @@
 
 This repository contains code for detecting hallucinations in large language models using attention signal analysis with Fourier transform, Laplacian operator, and Wavelet transform.
 
+This repository contains the official implementation for the paper  
+**"Detecting Contextual Hallucinations in LLMs with Frequency-Aware Attention"**.
+
+📄 Paper: https://arxiv.org/abs/2602.18145
+
+If you find this project helpful, please consider giving this repository a ⭐. Your support is greatly appreciated!
+
 ## Dataset
 
 Datasets are provided under the `dataset/` directory, organized by source and model:
